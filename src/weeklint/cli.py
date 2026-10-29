@@ -50,7 +50,7 @@ def _system_timezone() -> str:
     try:
         name = os.environ.get("TZ")
         if name:
-            return name
+            return name.lstrip(":")
         link = Path("/etc/localtime")
         if link.exists():
             resolved = link.resolve()
@@ -203,14 +203,12 @@ def cmd_check(args, opts) -> int:
                     task.id,
                     task.title,
                     fmt_minutes(task.estimate_minutes),
-                    iso(task.due) if task.due else "—",
+                    task.due.strftime("%m-%d %H:%M") if task.due else "—",
                     task.priority,
                     _task_status(task, check, None, None),
                     "是" if at_risk else "—",
                 )
             c.print(table)
-        else:
-            c.print("没有未完成任务。")
     return 1 if any(f.severity == "error" for f in check.findings) else 0
 
 
@@ -329,7 +327,7 @@ def cmd_today(args, opts) -> int:
             for item in due_unscheduled:
                 c.print(f"  {item.get('title', '')}（截止 {item.get('due', '')}）")
         if not found:
-            c.print("（plan.json 不是本周的，本次结果在内存中生成，未写文件。）")
+            c.print("（没有本周的 plan.json，本次结果在内存中生成，未写文件。）")
     return 0
 
 
@@ -338,7 +336,7 @@ def _explain_reason(task: Task, block, reason: str) -> str:
     ordering = f"{due}优先级 {task.priority}"
     if reason == "scheduled" and block is not None:
         period = "上午" if block.start.hour < 12 else "下午"
-        return f"{ordering}；放在{block.start.strftime('%m-%d')} {period} {block.start.strftime('%H:%M')} 的第一个足够长空档。"
+        return f"{ordering}；放在 {block.start.strftime('%m-%d')} {period} {block.start.strftime('%H:%M')} 的第一个足够长空档。"
     labels = {
         "no_capacity": "所有空档都不够长",
         "deep_work_limit": "高优先级每日深度工作上限已满",
@@ -392,9 +390,10 @@ def cmd_explain(args, opts) -> int:
         c = _console(opts)
         c.print(f"{task.title}")
         c.print(f"id={task.id} · 估算 {fmt_minutes(task.estimate_minutes)} · 截止 {iso(task.due) if task.due else '—'} · 优先级 {task.priority}")
-        c.print(f"状态：{status} · {reason_text}")
+        status_label = {"scheduled": "已排", "unscheduled": "未排", "completed": "已完成", "not_in_scope": "本周外"}.get(status, status)
+        c.print(f"状态：{status_label} · {reason_text}", soft_wrap=True)
         for block in blocks:
-            c.print(f"  {block.start.strftime('%m-%d %H:%M')}–{block.end.strftime('%H:%M')}  已锁定={block.locked}")
+            c.print(f"  {block.start.strftime('%m-%d %H:%M')}–{block.end.strftime('%H:%M')}  已锁定={'是' if block.locked else '否'}")
     return 0
 
 

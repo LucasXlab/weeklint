@@ -98,6 +98,7 @@ def test_plan_writes_files(workspace, capsys):
     for key in ("planJson", "planIcs", "planMarkdown", "reportHtml"):
         assert Path(data["files"][key]).exists()
     assert (workspace / ".weeklint" / "plan.prev.json").exists() is False
+    assert not (workspace / ".weeklint" / ".lock").exists()
 
 
 def test_plan_json_matches_file(workspace, capsys):
@@ -138,8 +139,17 @@ def test_plan_lock(workspace, capsys):
 def test_inputs_untouched(workspace, capsys):
     (workspace / "tasks.md").write_text("- [ ] 论文 @estimate(90m)\n", encoding="utf-8")
     before = hashlib.sha256((workspace / "tasks.md").read_bytes()).hexdigest()
+    before_ics = hashlib.sha256((workspace / "calendar.ics").read_bytes()).hexdigest()
     run(["--config", str(workspace / "weeklint.yaml"), "plan", "--now", NOW], capsys)
     assert hashlib.sha256((workspace / "tasks.md").read_bytes()).hexdigest() == before
+    assert hashlib.sha256((workspace / "calendar.ics").read_bytes()).hexdigest() == before_ics
+
+
+def test_plan_second_run_creates_prev(workspace, capsys):
+    (workspace / "tasks.md").write_text("- [ ] 论文 @estimate(90m)\n", encoding="utf-8")
+    run(["--config", str(workspace / "weeklint.yaml"), "plan", "--now", NOW], capsys)
+    run(["--config", str(workspace / "weeklint.yaml"), "plan", "--now", "2026-11-02T12:00:00-05:00"], capsys)
+    assert (workspace / ".weeklint" / "plan.prev.json").exists()
 
 
 def test_today(workspace, capsys):

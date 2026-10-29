@@ -159,7 +159,7 @@ def _locked_blocks(config: Config, check: CheckData, previous: dict | None) -> t
 def block_reason(task: Task, start: datetime) -> str:
     due = f"截止 {task.due.isoformat(timespec='minutes')}" if task.due else "没有截止时间"
     period = "上午" if start.hour < 12 else "下午"
-    return f"{due}，优先级 {task.priority}；放在{start.strftime('%m-%d')} {period} {start.strftime('%H:%M')} 的第一个足够长空档。"
+    return f"{due}，优先级 {task.priority}；放在 {start.strftime('%m-%d')} {period} {start.strftime('%H:%M')} 的第一个足够长空档。"
 
 def _work_for_day(config: Config, day: date) -> list[tuple[datetime, datetime]]:
     key = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")[day.weekday()]

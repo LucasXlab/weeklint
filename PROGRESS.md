@@ -18,7 +18,7 @@
 
 - 项目根：`/Users/you/NO/weeklint`，独立 git 仓库，已提交 Stage 1/2/3 + README 首版。
 - 版本：0.1.0；`pyproject.toml` 与 `src/weeklint/__init__.py` 一致。
-- 测试：148 passed；无 skip、无网络、无 sleep。
+- 测试：150 passed；无 skip、无网络、无 sleep。
 - 输出：`plan.json`、`plan.ics`、`plan.md`、`report.html` 已用真实示例生成；截图在 `assets/`。
 - 已知问题：见 `docs/deviations.md`，没有未记录的严重缺陷。
 
