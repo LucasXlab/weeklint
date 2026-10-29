@@ -205,9 +205,11 @@ def write_plan_files(plan: PlanData, config, include_report: bool = True) -> dic
 
 
 def _status_text(plan: PlanData) -> str:
-    if plan.summary["tasksUnscheduled"] == 0 and not any(f.severity == "error" for f in plan.findings):
-        return "这周装得下。"
-    return "有任务未排完，见下方。"
+    if plan.summary["tasksUnscheduled"]:
+        return "有任务未排完，见下方。"
+    if any(f.severity == "error" for f in plan.findings):
+        return "有截止风险，见下方。"
+    return "这周装得下。"
 
 
 def _finding_class(severity: str) -> str:
