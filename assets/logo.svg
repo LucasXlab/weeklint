@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96" role="img" aria-label="Weeklint">
+  <rect width="96" height="96" rx="20" fill="#2f6f4e"/>
+  <path d="M22 30h10l6 28 7-22h10l7 22 6-28h10l-11 40H57l-7-20-7 20H33L22 30z" fill="#fbfbfa"/>
+  <path d="M33 76h30" stroke="#9cc3a8" stroke-width="4" stroke-linecap="round"/>
+</svg>
