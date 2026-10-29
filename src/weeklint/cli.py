@@ -118,7 +118,7 @@ def cmd_init(args, opts) -> int:
     if opts["json"]:
         _emit_json({"version": __version__, "created": created, "dir": str(target)})
     else:
-        _console(opts).print(f"已创建 weeklint.yaml、tasks.md、calendar.ics。下一步：导出日历到 calendar.ics，再运行 weeklint check。")
+        _console(opts).print(f"已创建 weeklint.yaml、tasks.md、calendar.ics。下一步：导出日历到 calendar.ics，再运行 weeklint check。", soft_wrap=True)
         _console(opts).print(f"目录：{target}")
     return 0
 
@@ -192,22 +192,25 @@ def cmd_check(args, opts) -> int:
             f"可支配 {fmt_minutes(check.capacity['usableMinutes'])} · 任务需要 {fmt_minutes(check.demand['estimatedMinutes'])} · 缺口 {fmt_minutes(check.gap_minutes)}"
         )
         _print_findings(check, opts)
-        table = Table(show_header=True, header_style="bold")
-        for col in ("id", "标题", "估算", "截止", "优先级", "状态", "风险"):
-            table.add_column(col)
-        week_end = local_datetime(check.week.end, time(0, 0), config.tz)
-        for task in check.tasks:
-            at_risk = check.overcommitted and task.due is not None and task.due <= week_end
-            table.add_row(
-                task.id,
-                task.title,
-                fmt_minutes(task.estimate_minutes),
-                iso(task.due) if task.due else "—",
-                task.priority,
-                _task_status(task, check, None, None),
-                "是" if at_risk else "—",
-            )
-        c.print(table)
+        if check.tasks:
+            table = Table(show_header=True, header_style="bold")
+            for col in ("id", "标题", "估算", "截止", "优先级", "状态", "风险"):
+                table.add_column(col)
+            week_end = local_datetime(check.week.end, time(0, 0), config.tz)
+            for task in check.tasks:
+                at_risk = check.overcommitted and task.due is not None and task.due <= week_end
+                table.add_row(
+                    task.id,
+                    task.title,
+                    fmt_minutes(task.estimate_minutes),
+                    iso(task.due) if task.due else "—",
+                    task.priority,
+                    _task_status(task, check, None, None),
+                    "是" if at_risk else "—",
+                )
+            c.print(table)
+        else:
+            c.print("没有未完成任务。")
     return 1 if any(f.severity == "error" for f in check.findings) else 0
 
 
