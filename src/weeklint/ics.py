@@ -275,10 +275,6 @@ def load_events(config, horizon_start: datetime, horizon_end: datetime) -> tuple
     return events, findings
 
 
-def _escape_ics(text: str) -> str:
-    return text.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\r\n", "\\n").replace("\n", "\\n").replace("\r", "\\n")
-
-
 def blocks_to_ics(blocks: list, tz: ZoneInfo, generated_at: datetime, version: str) -> str:
     from icalendar import Calendar as ICalendar, Event
 

@@ -68,6 +68,7 @@ def test_deep_work_limit_unscheduled(workspace, make_config):
         max_deep_work_minutes_per_day=60,
     )
     assert plan.summary["tasksUnscheduled"] == 1
+    assert plan.unscheduled[0][1] == 500
     assert plan.unscheduled[0][2] == "deep_work_limit"
     assert any(f.code == "task_unscheduled" and f.severity == "error" for f in plan.findings)
 
@@ -100,6 +101,8 @@ def test_rollback_has_no_half_task(workspace, make_config):
     )
     assert plan.blocks == []
     assert plan.summary["tasksUnscheduled"] == 1
+    assert plan.unscheduled[0][1] == 180
+    assert plan.summary["unscheduledMinutes"] == 180
 
 
 def test_lock_second_run_idempotent(workspace, make_config):

@@ -20,7 +20,7 @@
 - 支持范围（v0.1.0）：
   - `VEVENT` 的 `UID`、`SUMMARY`、`DTSTART`、`DTEND`、`DURATION`、`RRULE`、`EXDATE`、`RDATE`、`STATUS`、`TRANSP`、`RECURRENCE-ID`；
   - `DTSTART` 为 `DATE`（全天事件）或 `DATE-TIME`（带 `TZID`、带 `Z`、浮动）；
-  - `RRULE` 的 `FREQ=DAILY|WEEKLY|MONTHLY|YEARLY`、`INTERVAL`、`COUNT`、`UNTIL`、`BYDAY`；
+  - `RRULE` 的 `FREQ=DAILY|WEEKLY|MONTHLY|YEARLY`、`INTERVAL`、`COUNT`、`UNTIL`、`BYDAY`；仅用 `dateutil.rrule` 支持且本项目测试覆盖的组合。
   - `EXDATE`、`RDATE`；`RECURRENCE-ID` 的覆盖实例不合并，跳过并 warning（见 SPEC 5.3）。
 - 不声称支持：`VTODO`、`VJOURNAL`、`VFREEBUSY`、`VALARM`、时区自定义 `VTIMEZONE` 的完整解析（交给 `icalendar`/`zoneinfo`）、复杂的 `BYSETPOS`/`BYYEARDAY` 组合、跨时区的 `RECURRENCE-ID` 合并。
 - 实际验证（2026-10-29，本地脚本）：

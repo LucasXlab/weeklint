@@ -62,23 +62,32 @@ def parse_estimate(value: str, line: int) -> int:
     return total
 
 
-def parse_due(value: str, tz: ZoneInfo, line: int) -> datetime:
+def parse_due(value: str, tz: ZoneInfo, line: int) -> tuple[datetime, bool]:
+    original = value
     value = value.strip()
     try:
         if DUE_DATE_RE.match(value):
             day = datetime.strptime(value, "%Y-%m-%d").date()
-            return local_datetime(day, time(23, 59), tz)
+            return local_datetime(day, time(23, 59), tz), False
         if DUE_DT_RE.match(value):
-            return parse_iso_datetime(value, tz)
+            parsed = parse_iso_datetime(value, tz)
+            adjusted = False
+            if not re.search(r"(?:Z|[+-]\d{2}:\d{2})$", value, re.IGNORECASE):
+                naive = datetime.fromisoformat(value)
+                local = local_datetime(naive.date(), naive.time(), tz)
+                adjusted = local.replace(tzinfo=None) != naive
+                ambiguous = naive.replace(tzinfo=tz, fold=0).utcoffset() != naive.replace(tzinfo=tz, fold=1).utcoffset()
+                adjusted = adjusted or ambiguous
+                return local, adjusted
+            return parsed, False
     except (ValueError, OverflowError):
         pass
     raise _err(
         "task_invalid_due",
-        f"@due 的值 {value!r} 无效：请写成 2026-11-04 或 2026-11-04T17:00 或 2026-11-04T17:00:00+08:00。",
+        f"@due 的值 {original!r} 无效：请写成 2026-11-04 或 2026-11-04T17:00 或 2026-11-04T17:00:00+08:00。",
         line,
-        value=value,
+        value=original,
     )
-
 
 def parse_priority(value: str, line: int) -> str:
     p = value.strip().lower()
@@ -154,6 +163,7 @@ def parse_task_text(text: str, tz: ZoneInfo, default_estimate: int) -> list[Task
                 snippet=_snippet(raw),
             )
         due = None
+        dst_adjusted = False
         estimate: int | None = None
         priority = "normal"
         tags: list[str] = []
@@ -166,7 +176,7 @@ def parse_task_text(text: str, tz: ZoneInfo, default_estimate: int) -> list[Task
             if key == "due":
                 if due is not None:
                     raise _err("task_parse_error", f"第 {lineno} 行重复写了 @due。", lineno, snippet=_snippet(raw))
-                due = parse_due(value, tz, lineno)
+                due, dst_adjusted = parse_due(value, tz, lineno)
             elif key == "estimate":
                 if estimate is not None:
                     raise _err("task_parse_error", f"第 {lineno} 行重复写了 @estimate。", lineno, snippet=_snippet(raw))
@@ -203,6 +213,7 @@ def parse_task_text(text: str, tz: ZoneInfo, default_estimate: int) -> list[Task
                 line=lineno,
                 completed=completed,
                 estimated=estimate is not None,
+                dst_adjusted=dst_adjusted,
             )
         )
     seen: dict[str, Task] = {}

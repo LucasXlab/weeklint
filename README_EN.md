@@ -188,6 +188,10 @@ weeklint version
 - `--week` selects an ISO week; `2026-W53` exists, `2027-W53` does not.
 - Exit codes: `0` normal; `1` at least one error finding; `2` config/input/write error; `3` unexpected internal error.
 
+## Upgrade
+
+Currently install from source: run `git pull` in the repository, then `python -m pip install -e .` again. Once published on PyPI, the upgrade command will be `python -m pip install -U weeklint`. Upgrading does not touch `weeklint.yaml`, `tasks.md` or `calendar.ics`; read [CHANGELOG.md](CHANGELOG.md) and [docs/deviations.md](docs/deviations.md) for behavior changes.
+
 ## Report
 
 `report.html` is a single file:

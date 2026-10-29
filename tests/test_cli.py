@@ -6,6 +6,7 @@ import socket
 from pathlib import Path
 
 import pytest
+import yaml
 
 from weeklint.cli import main
 from weeklint.config import load_config
@@ -251,3 +252,70 @@ def test_env_config_and_now(workspace, monkeypatch, capsys):
     code, out, err = run(["check", "--json"], capsys)
     assert code == 0, err
     assert json.loads(out)["week"]["iso"] == "2026-W45"
+
+
+def test_invalid_env_values(workspace, monkeypatch, capsys):
+    for name, value in (("WEEKLINT_NO_COLOR", "yes"), ("WEEKLINT_DEBUG", "2"), ("WEEKLINT_NOW", "not-a-time")):
+        monkeypatch.setenv(name, value)
+        code, out, err = run(["--config", str(workspace / "weeklint.yaml"), "--json", "check"], capsys)
+        assert code == 2, (name, err)
+        assert json.loads(err)["code"] == "invalid_env"
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_version_rejects_week(workspace, capsys):
+    code, out, err = run(["--json", "version", "--week", "2026-W45"], capsys)
+    assert code == 2
+    assert json.loads(err)["code"] == "invalid_argument"
+
+
+def test_today_due_unscheduled(workspace, capsys):
+    (workspace / "weeklint.yaml").write_text(
+        yaml.safe_dump(
+            config_data(
+                max_tasks_per_day=1,
+                work_hours={
+                    "mon": ["09:00-12:00"],
+                    "tue": [],
+                    "wed": [],
+                    "thu": [],
+                    "fri": [],
+                    "sat": [],
+                    "sun": [],
+                },
+            ),
+            allow_unicode=True,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    (workspace / "tasks.md").write_text(
+        "- [ ] 今天一 @due(2026-11-02T17:00) @estimate(120m) @priority(high)\n"
+        "- [ ] 今天二 @due(2026-11-02T18:00) @estimate(120m) @priority(high)\n"
+        "- [ ] 今天三 @due(2026-11-02T19:00) @estimate(120m) @priority(high)\n",
+        encoding="utf-8",
+    )
+    code, _, _ = run(["--config", str(workspace / "weeklint.yaml"), "--json", "plan", "--now", "2026-11-02T08:00:00-05:00"], capsys)
+    assert code == 1
+    code, out, err = run(["--config", str(workspace / "weeklint.yaml"), "--json", "today", "--now", "2026-11-02T08:00:00-05:00"], capsys)
+    assert code == 0, err
+    data = json.loads(out)
+    assert len(data["dueTodayUnscheduled"]) == 2
+    assert all(item["due"].startswith("2026-11-02") for item in data["dueTodayUnscheduled"])
+
+
+def test_date_only_now(workspace, capsys):
+    (workspace / "tasks.md").write_text("- [ ] 论文 @estimate(90m)\n", encoding="utf-8")
+    code, out, err = run(["--config", str(workspace / "weeklint.yaml"), "--json", "check", "--now", "2026-11-02"], capsys)
+    assert code == 0, err
+    assert json.loads(out)["now"] == "2026-11-02T00:00:00-05:00"
+
+
+def test_explain_completed(workspace, capsys):
+    (workspace / "tasks.md").write_text("- [x] 已完成的任务 @estimate(30m)\n", encoding="utf-8")
+    code, out, err = run(["--config", str(workspace / "weeklint.yaml"), "--json", "explain", "已完成", "--now", NOW], capsys)
+    assert code == 0, err
+    data = json.loads(out)
+    assert data["blocks"] == []
+    assert data["unscheduled"] is None
+    assert "已完成" in data["reason"]

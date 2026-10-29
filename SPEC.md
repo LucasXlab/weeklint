@@ -70,7 +70,6 @@ weeklint/
     test_planner.py
     test_cli.py
     test_report.py
-    fixtures/
   docs/
     features.md
     development.md

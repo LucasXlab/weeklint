@@ -35,6 +35,7 @@ class Task:
     line: int
     completed: bool
     estimated: bool
+    dst_adjusted: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {

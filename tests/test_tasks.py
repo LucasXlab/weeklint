@@ -179,3 +179,25 @@ def test_load_tasks_too_large(tmp_path):
     with pytest.raises(WeeklintError) as exc:
         load_tasks(path, TZ, 60)
     assert exc.value.code == "task_file_too_large"
+
+
+def test_dst_nonexistent_due_is_shifted_and_flagged():
+    task = parse_task_text("- [ ] 春季任务 @due(2026-03-08T02:30)\n", ZoneInfo("America/New_York"), 60)[0]
+    assert task.due is not None
+    assert (task.due.hour, task.due.minute) == (3, 30)
+    assert task.dst_adjusted is True
+
+
+def test_dst_ambiguous_due_uses_first_instance_and_is_flagged():
+    task = parse_task_text("- [ ] 秋季任务 @due(2026-11-01T01:30)\n", ZoneInfo("America/New_York"), 60)[0]
+    assert task.due is not None
+    assert task.due.utcoffset() is not None
+    assert task.due.utcoffset().total_seconds() == -4 * 3600
+    assert task.dst_adjusted is True
+
+
+def test_explicit_offset_due_is_not_flagged():
+    task = parse_task_text("- [ ] 秋季任务 @due(2026-11-01T01:30-05:00)\n", ZoneInfo("America/New_York"), 60)[0]
+    assert task.due is not None
+    assert task.due.utcoffset().total_seconds() == -4 * 3600
+    assert task.dst_adjusted is False

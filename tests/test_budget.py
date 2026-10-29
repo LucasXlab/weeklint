@@ -179,3 +179,14 @@ def test_dst_nonexistent_local_time_shifts_forward():
 def test_dst_ambiguous_uses_fold_zero():
     dt = local_datetime(date(2026, 11, 1), time(1, 30), TZINFO)
     assert dt.fold == 0
+
+
+def test_dst_adjusted_finding(workspace, make_config):
+    check = run(
+        workspace,
+        make_config,
+        "- [ ] 春季任务 @due(2026-03-08T02:30) @estimate(30m)\n",
+        week="2026-W10",
+        now="2026-03-08T00:00:00-05:00",
+    )
+    assert any(f.code == "dst_adjusted" for f in check.findings)

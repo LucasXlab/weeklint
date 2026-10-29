@@ -205,6 +205,10 @@ weeklint version
 - `--week`：指定 ISO 周；`2026-W53` 合法，`2027-W53` 不存在。
 - 退出码：`0` 正常；`1` 至少一个 error finding；`2` 配置/输入/写文件错误；`3` 未预期内部错误。
 
+## 升级
+
+当前从源码安装：在仓库目录执行 `git pull` 后重新 `python -m pip install -e .`。未来发布到 PyPI 后，升级命令是 `python -m pip install -U weeklint`。升级不会改动你的 `weeklint.yaml`、`tasks.md` 或 `calendar.ics`；先看 [CHANGELOG.md](CHANGELOG.md) 的变更和 [docs/deviations.md](docs/deviations.md) 的行为差异。
+
 ## 报告
 
 `report.html` 是单文件，直接双击打开即可：

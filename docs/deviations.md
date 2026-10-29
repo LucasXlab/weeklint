@@ -98,7 +98,7 @@
 - **偏差**：已完成或截止晚于本周的任务不在 check 的在范围内；`explain` 仍可按 id/标题找到，返回 `blocks=[]`、`unscheduled=null` 和一句中文 `reason`。
 - **原因**：用户可能想确认「这个任务为什么没排」；直接 `task_not_found` 不友好。
 - **影响**：`reason` 对这两种情况分别是「任务已完成，不参与本周排程。」和「截止晚于本周，未计入本周排程。」；不新增 `status` 字段，避免偏离 6.7 契约。
-- **验证**：`tests/test_cli.py::test_explain_by_id_and_title` 覆盖已排任务；已完成分支待补（见 PROGRESS）。
+- **验证**：`tests/test_cli.py::test_explain_by_id_and_title` 覆盖已排任务，`test_explain_completed` 覆盖已完成分支。
 
 ## D15. RRULE 只展开到本周结束
 

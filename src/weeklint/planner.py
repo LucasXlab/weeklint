@@ -143,6 +143,8 @@ def _locked_blocks(config: Config, check: CheckData, previous: dict | None) -> t
                 reason = "块不在工作时间内"
             elif per_task.get(task.id, 0) + minutes_between(start, end) > task.estimate_minutes:
                 reason = "块总分钟超过任务估算"
+            elif any(start < b.end and end > b.start for b in kept):
+                reason = "块与旧计划里的另一个块重叠"
         if reason:
             findings.append(
                 Finding("locked_block_dropped", "warning", f"旧计划里的块「{task.title}」被丢弃：{reason}。", task_id=task.id)
@@ -253,7 +255,9 @@ def plan_week(config: Config, check: CheckData) -> PlanData:
             blocks.extend(trial)
             continue
         # Roll back only newly placed blocks; locked blocks stay.
-        unscheduled.append((task, remaining - placed if placed else remaining, reason or "no_capacity"))
+        # The trial blocks are rolled back, so none of ``placed`` counts; the
+        # whole task remains unscheduled.
+        unscheduled.append((task, remaining, reason or "no_capacity"))
         findings.append(
             Finding(
                 "task_unscheduled",

@@ -98,7 +98,7 @@ timezone: Asia/Shanghai
 
 - 非 finding 错误统一 `{error, code, detail}`，写 stderr；`--json` 时也是一行 JSON。
 - 退出码：0 正常；1 至少一个 `severity=error` 的 finding；2 用户/输入/配置/写文件错误；3 未预期内部错误。
-- finding 级别：`error`（overcommitted、deadline_at_risk、task_unscheduled）、`warning`（过期、未估算、碎片日、无日历等）、`info`（截止晚于本周）。
+- finding 级别：`error`（overcommitted、deadline_at_risk、task_unscheduled）、`warning`（过期、未估算、碎片日、无日历、DST 调整等）、`info`（截止晚于本周）。
 - 完整错误码与 finding 码见 `SPEC.md` 第 4.3、5.3 节。
 
 ## 7. 隐私

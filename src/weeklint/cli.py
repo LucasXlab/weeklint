@@ -193,10 +193,20 @@ def cmd_check(args, opts) -> int:
         )
         _print_findings(check, opts)
         table = Table(show_header=True, header_style="bold")
-        for col in ("id", "标题", "估算", "截止", "优先级", "状态"):
+        for col in ("id", "标题", "估算", "截止", "优先级", "状态", "风险"):
             table.add_column(col)
+        week_end = local_datetime(check.week.end, time(0, 0), config.tz)
         for task in check.tasks:
-            table.add_row(task.id, task.title, fmt_minutes(task.estimate_minutes), iso(task.due) if task.due else "—", task.priority, _task_status(task, check, None, None))
+            at_risk = check.overcommitted and task.due is not None and task.due <= week_end
+            table.add_row(
+                task.id,
+                task.title,
+                fmt_minutes(task.estimate_minutes),
+                iso(task.due) if task.due else "—",
+                task.priority,
+                _task_status(task, check, None, None),
+                "是" if at_risk else "—",
+            )
         c.print(table)
     return 1 if any(f.severity == "error" for f in check.findings) else 0
 
@@ -314,7 +324,7 @@ def cmd_today(args, opts) -> int:
         if due_unscheduled:
             c.print("今天到期但未排程：")
             for item in due_unscheduled:
-                c.print(f"  {item.get('title', '')}（还剩 {fmt_minutes(int(item.get('remainingMinutes', 0)))}）")
+                c.print(f"  {item.get('title', '')}（截止 {item.get('due', '')}）")
         if not found:
             c.print("（plan.json 不是本周的，本次结果在内存中生成，未写文件。）")
     return 0
@@ -453,6 +463,33 @@ def _load_config(opts) -> Config:
     return load_config(opts.get("config"), os.environ)
 
 
+def _validate_env() -> None:
+    raw_now = os.environ.get("WEEKLINT_NOW")
+    if raw_now and raw_now.strip():
+        value = raw_now.strip()
+        try:
+            if " " in value:
+                raise ValueError("space separator")
+            if len(value) == 10 and value[4] == "-" and value[7] == "-":
+                date.fromisoformat(value)
+            else:
+                datetime.fromisoformat(value[:-1] + "+00:00" if value.endswith(("Z", "z")) else value)
+        except (ValueError, OverflowError):
+            raise WeeklintError(
+                "invalid_env",
+                f"WEEKLINT_NOW 的值 {raw_now!r} 不是合法的 ISO 8601 时间。例：2026-11-02T09:00:00+08:00。",
+                {"variable": "WEEKLINT_NOW", "value": raw_now},
+            ) from None
+    for name in ("WEEKLINT_NO_COLOR", "WEEKLINT_DEBUG"):
+        value = os.environ.get(name)
+        if value is not None and value not in ("", "0", "1"):
+            raise WeeklintError(
+                "invalid_env",
+                f"{name} 的值 {value!r} 无效：只能是 0 或 1。",
+                {"variable": name, "value": value},
+            )
+
+
 def _extract_globals(argv: list[str]) -> tuple[dict, list[str]]:
     opts = {"config": None, "json": False, "now": None, "week": None, "no_color": False, "debug": False}
     rest: list[str] = []
@@ -510,6 +547,7 @@ def main(argv: list[str] | None = None) -> int:
     json_mode = "--json" in argv
     debug = os.environ.get("WEEKLINT_DEBUG") == "1"
     try:
+        _validate_env()
         opts, rest = _extract_globals(argv)
         json_mode = bool(opts["json"])
         debug = debug or bool(opts["debug"])

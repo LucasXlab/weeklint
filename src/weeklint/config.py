@@ -371,5 +371,34 @@ def init_config_dict() -> dict[str, Any]:
     }
 
 
+INIT_CONFIG_TEMPLATE = """version: 1
+timezone: Asia/Shanghai
+planning:
+  include_weekends: false
+  work_hours:
+    mon: ["09:00-12:00", "13:30-18:00"]
+    tue: ["09:00-12:00", "13:30-18:00"]
+    wed: ["09:00-12:00", "13:30-18:00"]
+    thu: ["09:00-12:00", "13:30-18:00"]
+    fri: ["09:00-12:00", "13:30-18:00"]
+    sat: []
+    sun: []
+  buffer_after_event_minutes: 10
+  gap_between_tasks_minutes: 10
+  min_block_minutes: 30
+  max_block_minutes: 120
+  max_deep_work_minutes_per_day: 180
+  max_tasks_per_day: 4
+  default_estimate_minutes: 60
+  lock_existing_plan: true
+  block_all_day_events: true
+  task_file: tasks.md
+  calendar_files: ["calendar.ics"]
+  output_dir: .weeklint
+  report:
+    title: 本周计划
+"""
+
+
 def dump_init_config() -> str:
-    return yaml.safe_dump(init_config_dict(), allow_unicode=True, sort_keys=False, default_flow_style=False)
+    return INIT_CONFIG_TEMPLATE

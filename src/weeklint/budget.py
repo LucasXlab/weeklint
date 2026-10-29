@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
+import re
 from zoneinfo import ZoneInfo
 
 from .config import Config
@@ -26,6 +27,8 @@ def _err(code: str, message: str, **detail: object) -> WeeklintError:
 
 def parse_week_arg(value: str, tz: ZoneInfo) -> WeekRange:
     try:
+        if not re.fullmatch(r"\d{4}-W\d{2}", value):
+            raise ValueError
         year_s, week_s = value.split("-W", 1)
         year, week = int(year_s), int(week_s)
         if not (1 <= week <= 53):
@@ -49,7 +52,14 @@ def week_for_now(now: datetime, tz: ZoneInfo) -> WeekRange:
 
 
 def resolve_now(cli_now: str | None, env: dict[str, str], tz: ZoneInfo) -> datetime:
-    raw = cli_now or env.get("WEEKLINT_NOW") or ""
+    if cli_now:
+        raw = cli_now
+        code = "invalid_now"
+        label = "--now"
+    else:
+        raw = env.get("WEEKLINT_NOW") or ""
+        code = "invalid_env"
+        label = "WEEKLINT_NOW"
     if raw.strip():
         try:
             value = raw.strip()
@@ -59,8 +69,8 @@ def resolve_now(cli_now: str | None, env: dict[str, str], tz: ZoneInfo) -> datet
             return parse_iso_datetime(value, tz)
         except (ValueError, OverflowError):
             raise _err(
-                "invalid_now",
-                f"--now / WEEKLINT_NOW 的值 {raw!r} 不是合法的 ISO 8601 时间。例：2026-11-02T09:00:00+08:00。",
+                code,
+                f"{label} 的值 {raw!r} 不是合法的 ISO 8601 时间。例：2026-11-02T09:00:00+08:00。",
                 value=raw,
             ) from None
     return datetime.now(tz)
@@ -200,6 +210,15 @@ def build_check(config: Config, tasks: list[Task], events: list[CalendarEvent], 
     if not open_tasks:
         findings.append(Finding("no_tasks", "warning", f"任务文件里没有未完成任务：{config.planning.task_file}。"))
     for task in in_scope:
+        if task.dst_adjusted:
+            findings.append(
+                Finding(
+                    "dst_adjusted",
+                    "warning",
+                    f"任务「{task.title}」的截止时间落在时区跳变点，已按最早一次/顺延规则调整。",
+                    task_id=task.id,
+                )
+            )
         if not task.estimated:
             findings.append(
                 Finding(
