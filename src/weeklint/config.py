@@ -22,6 +22,11 @@ DEFAULT_WORK = ["09:00-18:00"]
 MAX_CONFIG_BYTES = 256 * 1024
 
 
+def _short(value: object, limit: int = 60) -> str:
+    text = str(value)
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
 @dataclass(frozen=True, slots=True)
 class PlanningConfig:
     include_weekends: bool
@@ -203,7 +208,7 @@ def load_config(path: str | Path | None, env: Mapping[str, str] | None = None) -
         ) from None
     try:
         data = yaml.safe_load(text)
-    except yaml.YAMLError as exc:
+    except (yaml.YAMLError, RecursionError) as exc:
         mark = getattr(exc, "problem_mark", None)
         line = (mark.line + 1) if mark is not None else None
         raise WeeklintError(
@@ -227,8 +232,8 @@ def load_config(path: str | Path | None, env: Mapping[str, str] | None = None) -
     if not isinstance(version, int) or isinstance(version, bool) or version != 1:
         raise WeeklintError(
             "config_version_unsupported",
-            f"不支持的配置版本：{version!r}；当前只支持 version: 1。",
-            {"version": version},
+            f"不支持的配置版本：{_short(version)}；当前只支持 version: 1。",
+            {"version": _short(version)},
         )
     tz_name = data.get("timezone", "UTC")
     if not isinstance(tz_name, str):
@@ -238,7 +243,7 @@ def load_config(path: str | Path | None, env: Mapping[str, str] | None = None) -
     except (ZoneInfoNotFoundError, ValueError):
         raise WeeklintError(
             "config_invalid_timezone",
-            f"时区 {tz_name!r} 无效：请用 IANA 名称，例如 Asia/Shanghai、UTC、America/New_York。",
+            f"时区 {_short(tz_name)} 无效：请用 IANA 名称，例如 Asia/Shanghai、UTC、America/New_York。",
             {"timezone": tz_name},
         ) from None
 

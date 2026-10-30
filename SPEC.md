@@ -882,7 +882,7 @@ weeklint doctor
 ### 11.5 排程（`test_planner.py`）
 
 - 排序：过期 > 截止早 > 高优先级 > 长任务 > id。
-- 切块：121m/120m/30m → 2 块且每块 ≥30；130m → 65+65；250m → 85+85+80；<30m 单块。
+- 切块：121m/120m/30m → 2 块且每块 ≥30；130m → 65+65；250m → 84+83+83；<30m 单块。
 - 放置：周一第一个空档；高优先级上午优先；同一天不同任务数上限；高优先级每日上限。
 - 截止风险：块结束晚于 due → `deadline_at_risk`；未排且有 due → atRisk。
 - `max_tasks_per_day`/`max_deep_work_minutes_per_day` 导致整条未排（即使 `gapMinutes=0`）→ `task_unscheduled` error，`plan` 退出 1。

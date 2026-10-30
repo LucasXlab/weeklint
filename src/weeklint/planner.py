@@ -10,7 +10,18 @@ from pathlib import Path
 from .config import Config
 from .errors import WeeklintError
 from .model import Block, CheckData, Finding, PlanData, PRIORITY_RANK, Task, minutes_between
-from .timeutil import local_datetime, parse_iso_datetime
+from .timeutil import add_minutes, local_datetime, parse_iso_datetime
+
+
+REASON_LABELS = {
+    "no_capacity": "没有足够长的空档",
+    "deep_work_limit": "触发当天高优先级深度工作上限",
+    "task_limit": "触发当天任务数上限",
+}
+
+
+def reason_label(code: str) -> str:
+    return REASON_LABELS.get(code, code)
 
 
 def task_sort_key(task: Task, now: datetime):
@@ -29,9 +40,16 @@ def split_minutes(total: int, max_block: int, min_block: int) -> list[int]:
     return [base + 1] * extra + [base] * (n - extra)
 
 
-def _find_slot(slots: list[list[datetime]], duration: int, gap: int, high: bool) -> list[datetime] | None:
-    """Find a slot to mutate; returns the same list object or None."""
-    candidates = [s for s in slots if minutes_between(s[0], s[1]) >= duration]
+def _find_slot(
+    slots: list[list[datetime]], duration: int, gap: int, high: bool, min_block: int
+) -> list[datetime] | None:
+    """Find a slot to mutate; returns the same list object or None.
+
+    A block may be shorter than ``min_block`` when the task itself is smaller,
+    but it still must go into a free interval of at least ``min_block``.
+    """
+    needed = max(duration, min_block)
+    candidates = [s for s in slots if minutes_between(s[0], s[1]) >= needed]
     if not candidates:
         return None
     if high:
@@ -54,13 +72,15 @@ def _remove(slots: list[list[datetime]], start: datetime, end: datetime) -> list
     return out
 
 
-def _place(slots: list[list[datetime]], duration: int, gap: int, high: bool) -> tuple[datetime, datetime] | None:
-    slot = _find_slot(slots, duration, gap, high)
+def _place(
+    slots: list[list[datetime]], duration: int, gap: int, high: bool, min_block: int
+) -> tuple[datetime, datetime] | None:
+    slot = _find_slot(slots, duration, gap, high, min_block)
     if slot is None:
         return None
     start = slot[0]
-    end = start + timedelta(minutes=duration)
-    slot[0] = end + timedelta(minutes=gap)
+    end = add_minutes(start, duration)
+    slot[0] = add_minutes(end, gap)
     if slot[0] >= slot[1]:
         slots.remove(slot)
     return start, end
@@ -227,7 +247,13 @@ def plan_week(config: Config, check: CheckData) -> PlanData:
                 if task.priority == "high" and config.planning.max_deep_work_minutes_per_day > 0 and trial_deep[day] + chunk > config.planning.max_deep_work_minutes_per_day:
                     saw_deep = True
                     continue
-                got = _place(trial_slots[day], chunk, config.planning.gap_between_tasks_minutes, task.priority == "high")
+                got = _place(
+                    trial_slots[day],
+                    chunk,
+                    config.planning.gap_between_tasks_minutes,
+                    task.priority == "high",
+                    config.planning.min_block_minutes,
+                )
                 if got:
                     placement = (day, got[0], got[1])
                     break
@@ -262,7 +288,7 @@ def plan_week(config: Config, check: CheckData) -> PlanData:
             Finding(
                 "task_unscheduled",
                 "error",
-                f"任务「{task.title}」还有 {remaining} 分钟没排下：{reason or 'no_capacity'}。",
+                f"任务「{task.title}」还有 {remaining} 分钟没排下：{reason_label(reason or 'no_capacity')}。",
                 task_id=task.id,
                 value=remaining,
             )

@@ -10,6 +10,7 @@ from weeklint.ics import load_events
 from weeklint.planner import plan_week, split_minutes, task_sort_key
 from weeklint.report import write_plan_files
 from weeklint.tasks import parse_task_text
+from weeklint.model import minutes_between
 from weeklint.timeutil import local_datetime, parse_iso_datetime
 
 from conftest import TZ, local, write_ics
@@ -151,3 +152,71 @@ def test_summary_and_files(workspace, make_config):
     assert plan.summary["tasksScheduled"] == 1
     assert plan.summary["capacityMinutes"] == check.capacity["usableMinutes"]
     assert plan.files["planJson"].endswith("plan.json")
+
+
+def test_small_task_cannot_use_sub_min_block_slot(workspace, make_config):
+    _, check, plan = make(
+        workspace,
+        make_config,
+        "- [ ] 小任务 @estimate(20m)\n",
+        work_hours={"mon": ["09:00-09:20"], "tue": [], "wed": [], "thu": [], "fri": [], "sat": [], "sun": []},
+    )
+    assert check.capacity["usableMinutes"] == 0
+    assert plan.blocks == []
+    assert plan.unscheduled[0][1] == 20
+
+
+def test_spring_forward_capacity_is_elapsed_minutes(workspace, make_config):
+    write_ics(workspace / "calendar.ics", [])
+    config = make_config(
+        include_weekends=True,
+        work_hours={"mon": [], "tue": [], "wed": [], "thu": [], "fri": [], "sat": [], "sun": ["01:00-04:00"]},
+        min_block_minutes=15,
+        max_block_minutes=240,
+    )
+    tz = config.tz
+    wr = parse_week_arg("2026-W10", tz)
+    start = local_datetime(wr.start, time(0, 0), tz)
+    end = local_datetime(wr.end, time(0, 0), tz)
+    evs, findings = load_events(config, start, end)
+    check = build_check(
+        config,
+        parse_task_text("- [ ] 夜班 @estimate(150m)\n", tz, config.planning.default_estimate_minutes),
+        evs,
+        parse_iso_datetime("2026-03-02T08:00:00-05:00", tz),
+        wr,
+        findings,
+    )
+    assert check.capacity["workMinutes"] == 120
+    assert check.day_capacity[wr.start + __import__("datetime").timedelta(days=6)]["workMinutes"] == 120
+    plan = plan_week(config, check)
+    assert plan.blocks == []
+    assert plan.summary["unscheduledMinutes"] == 150
+
+
+def test_spring_forward_block_minutes_are_elapsed(workspace, make_config):
+    write_ics(workspace / "calendar.ics", [])
+    config = make_config(
+        include_weekends=True,
+        work_hours={"mon": [], "tue": [], "wed": [], "thu": [], "fri": [], "sat": [], "sun": ["01:00-04:00"]},
+        min_block_minutes=15,
+        max_block_minutes=240,
+    )
+    tz = config.tz
+    wr = parse_week_arg("2026-W10", tz)
+    start = local_datetime(wr.start, time(0, 0), tz)
+    end = local_datetime(wr.end, time(0, 0), tz)
+    evs, findings = load_events(config, start, end)
+    check = build_check(
+        config,
+        parse_task_text("- [ ] 夜班 @estimate(90m)\n", tz, config.planning.default_estimate_minutes),
+        evs,
+        parse_iso_datetime("2026-03-02T08:00:00-05:00", tz),
+        wr,
+        findings,
+    )
+    plan = plan_week(config, check)
+    assert len(plan.blocks) == 1
+    block = plan.blocks[0]
+    assert minutes_between(block.start, block.end) == 90
+    assert int((block.end.astimezone(__import__("datetime").timezone.utc) - block.start.astimezone(__import__("datetime").timezone.utc)).total_seconds() // 60) == 90

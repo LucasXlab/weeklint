@@ -43,7 +43,8 @@ def test_fmt_minutes():
 def test_markdown(workspace, make_config):
     config, check, plan = make_plan(workspace, make_config)
     text = render_plan_markdown(plan, config)
-    assert "## 周一至周日" in text
+    assert "## 周一 11-02" in text
+    assert "| 时间 | 任务 | 分钟 |" in text
     assert "## 未排程" in text
     assert "论文 <b>x</b>" in text
 
@@ -142,3 +143,40 @@ def test_write_failure_keeps_old_plan(workspace, make_config, monkeypatch):
     with pytest.raises(WeeklintError):
         write_plan_files(plan, config)
     assert (config.planning.output_dir / "plan.json").read_bytes() == old
+
+
+def test_empty_report_does_not_claim_it_fits(workspace, make_config):
+    write_ics(workspace / "calendar.ics", [])
+    config = make_config()
+    wr = parse_week_arg("2026-W45", config.tz)
+    evs, findings = load_events(config, local_datetime(wr.start, time(0, 0), config.tz), local_datetime(wr.end, time(0, 0), config.tz))
+    check = build_check(config, [], evs, parse_iso_datetime("2026-11-02T09:00:00-05:00", config.tz), wr, findings)
+    html = render_report_html(plan_week(config, check), config)
+    assert "还没有任务" in html
+    assert "这周装得下" not in html
+
+
+def test_report_bar_shows_demand_when_nothing_is_scheduled(workspace, make_config):
+    write_ics(workspace / "calendar.ics", [])
+    config = make_config(
+        work_hours={"mon": ["09:00-10:00"], "tue": [], "wed": [], "thu": [], "fri": [], "sat": [], "sun": []},
+        max_deep_work_minutes_per_day=0,
+        max_tasks_per_day=12,
+    )
+    wr = parse_week_arg("2026-W45", config.tz)
+    evs, findings = load_events(config, local_datetime(wr.start, time(0, 0), config.tz), local_datetime(wr.end, time(0, 0), config.tz))
+    tasks = parse_task_text("- [ ] 大任务 @estimate(600m)\n", config.tz, 60)
+    check = build_check(config, tasks, evs, parse_iso_datetime("2026-11-02T09:00:00-05:00", config.tz), wr, findings)
+    plan = plan_week(config, check)
+    html = render_report_html(plan, config)
+    assert plan.summary["scheduledMinutes"] == 0
+    assert 'width: 100.0%' in html
+    assert "需求 10h" in html
+
+
+def test_print_uses_light_tokens(workspace, make_config):
+    config, check, plan = make_plan(workspace, make_config)
+    html = render_report_html(plan, config)
+    print_block = html.split("@media print", 1)[1]
+    assert "color-scheme: light" in print_block
+    assert "--bg: #fbfbfa" in print_block

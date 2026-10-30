@@ -40,24 +40,32 @@ def _snippet(line: str) -> str:
     return line.strip()[:80]
 
 
+def _short(value: object, limit: int = 40) -> str:
+    text = str(value)
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
 def parse_estimate(value: str, line: int) -> int:
     value = value.strip().lower()
     total: int | None = None
-    m = EST_RE.match(value)
-    if m and (m.group(1) or m.group(2)):
-        hours = int(m.group(1) or 0)
-        minutes = int(m.group(2) or 0)
-        total = hours * 60 + minutes
-    else:
-        m2 = EST_HOURS_RE.match(value)
-        if m2:
-            total = int(round(float(m2.group(1)) * 60))
+    try:
+        m = EST_RE.match(value)
+        if m and (m.group(1) or m.group(2)):
+            hours = int(m.group(1) or 0)
+            minutes = int(m.group(2) or 0)
+            total = hours * 60 + minutes
+        else:
+            m2 = EST_HOURS_RE.match(value)
+            if m2:
+                total = int(round(float(m2.group(1)) * 60))
+    except (ValueError, OverflowError):
+        total = None
     if total is None or total < 5 or total > 2400:
         raise _err(
             "task_invalid_estimate",
-            f"@estimate 的值 {value!r} 无效：必须是 5–2400 分钟。请改成 30m、1h 或 1h30m。",
+            f"@estimate 的值 {_short(value)!r} 无效：必须是 5–2400 分钟。请改成 30m、1h 或 1h30m。",
             line,
-            value=value,
+            value=_short(value),
         )
     return total
 
@@ -84,9 +92,9 @@ def parse_due(value: str, tz: ZoneInfo, line: int) -> tuple[datetime, bool]:
         pass
     raise _err(
         "task_invalid_due",
-        f"@due 的值 {original!r} 无效：请写成 2026-11-04 或 2026-11-04T17:00 或 2026-11-04T17:00:00+08:00。",
+        f"@due 的值 {_short(original)!r} 无效：请写成 2026-11-04 或 2026-11-04T17:00 或 2026-11-04T17:00:00+08:00。",
         line,
-        value=original,
+        value=_short(original),
     )
 
 def parse_priority(value: str, line: int) -> str:
@@ -94,9 +102,9 @@ def parse_priority(value: str, line: int) -> str:
     if p not in PRIORITIES:
         raise _err(
             "task_invalid_priority",
-            f"@priority 的值 {value!r} 无效：只能是 high、normal、low。",
+            f"@priority 的值 {_short(value)!r} 无效：只能是 high、normal、low。",
             line,
-            value=value,
+            value=_short(value),
         )
     return p
 
@@ -106,9 +114,9 @@ def parse_tag(value: str, line: int) -> str:
     if not TAG_RE.match(t):
         raise _err(
             "task_invalid_tag",
-            f"@tag 的值 {value!r} 无效：1–24 个字符，只能用英文字母、数字、下划线、连字符。",
+            f"@tag 的值 {_short(value)!r} 无效：1–24 个字符，只能用英文字母、数字、下划线、连字符。",
             line,
-            value=value,
+            value=_short(value),
         )
     return t
 
@@ -118,9 +126,9 @@ def parse_id(value: str, line: int) -> str:
     if not ID_RE.match(t):
         raise _err(
             "task_invalid_id",
-            f"@id 的值 {value!r} 无效：1–64 个字符，只能用英文字母、数字、下划线、连字符。",
+            f"@id 的值 {_short(value)!r} 无效：1–64 个字符，只能用英文字母、数字、下划线、连字符。",
             line,
-            value=value,
+            value=_short(value),
         )
     return t
 
@@ -155,6 +163,14 @@ def parse_task_text(text: str, tz: ZoneInfo, default_estimate: int) -> list[Task
             title = title[: mm.start()].rstrip()
         if not title:
             raise _err("task_parse_error", f"第 {lineno} 行的任务没有标题（只有元数据）。", lineno, snippet=_snippet(raw))
+        unclosed = re.search(r"@[A-Za-z][A-Za-z0-9_]*\(", title)
+        if unclosed:
+            raise _err(
+                "task_parse_error",
+                f"第 {lineno} 行的元数据 {unclosed.group(0)} 没有闭合的右括号；请写成 @key(value)。",
+                lineno,
+                snippet=_snippet(raw),
+            )
         if len(title) > MAX_TITLE:
             raise _err(
                 "task_parse_error",

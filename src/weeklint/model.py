@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any
 
 PRIORITIES = ("high", "normal", "low")
@@ -21,7 +21,12 @@ def hhmm(dt: datetime) -> str:
 
 
 def minutes_between(start: datetime, end: datetime) -> int:
-    return int(round((end - start).total_seconds() / 60))
+    """Elapsed minutes; aware values are compared in UTC to survive DST."""
+    if start.tzinfo is not None and end.tzinfo is not None:
+        delta = end.astimezone(timezone.utc) - start.astimezone(timezone.utc)
+    else:
+        delta = end - start
+    return int(round(delta.total_seconds() / 60))
 
 
 @dataclass(slots=True)

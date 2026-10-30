@@ -329,3 +329,94 @@ def test_explain_completed(workspace, capsys):
     assert data["blocks"] == []
     assert data["unscheduled"] is None
     assert "已完成" in data["reason"]
+
+
+def test_today_next_when_block_in_progress(workspace, capsys):
+    """next must skip the block that is running now, and work at block edges."""
+    (workspace / "tasks.md").write_text(
+        "- [ ] 甲 @estimate(60m) @id(a) @priority(high)\n- [ ] 乙 @estimate(60m) @id(b)\n",
+        encoding="utf-8",
+    )
+    cfg = str(workspace / "weeklint.yaml")
+    code, _, err = run(["--config", cfg, "--json", "plan", "--now", "2026-11-02T08:00:00-05:00"], capsys)
+    assert code == 0, err
+
+    # 09:15: inside 甲 (09:00–10:00); next must be 乙 at 10:10.
+    code, out, err = run(["--config", cfg, "--json", "today", "--now", "2026-11-02T09:15:00-05:00"], capsys)
+    assert code == 0, err
+    data = json.loads(out)
+    assert [(b["start"][11:16], b["title"]) for b in data["blocks"]] == [("09:00", "甲"), ("10:10", "乙")]
+    assert data["next"]["title"] == "乙"
+    assert data["next"]["start"][11:16] == "10:10"
+
+    # 10:00: exactly at the end of 甲, which is half-open, so next is still 乙.
+    code, out, err = run(["--config", cfg, "--json", "today", "--now", "2026-11-02T10:00:00-05:00"], capsys)
+    assert code == 0, err
+    assert json.loads(out)["next"]["title"] == "乙"
+
+    # 10:30: inside 乙, so there is no next block left today.
+    code, out, err = run(["--config", cfg, "--json", "today", "--now", "2026-11-02T10:30:00-05:00"], capsys)
+    assert code == 0, err
+    assert json.loads(out)["next"] is None
+
+    # Human output names the next block time and the running block.
+    code, out, _ = run(["--config", cfg, "--no-color", "today", "--now", "2026-11-02T09:15:00-05:00"], capsys)
+    assert code == 0
+    assert "09:00–10:00  甲" in out
+    assert "（进行中）" in out
+    assert "下一块：10:10 乙" in out
+
+
+def test_debug_env_prints_traceback(workspace, monkeypatch, capsys):
+    """WEEKLINT_DEBUG=1 adds a traceback for internal errors; default does not."""
+    import weeklint.cli as cli
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("boom for test")
+
+    monkeypatch.setattr(cli, "_check_for", boom)
+    args = ["--config", str(workspace / "weeklint.yaml"), "--json", "check"]
+
+    monkeypatch.delenv("WEEKLINT_DEBUG", raising=False)
+    code, out, err = run(args, capsys)
+    assert code == 3
+    assert "Traceback (most recent call last)" not in err
+    assert json.loads(err.strip().splitlines()[-1])["code"] == "internal_error"
+    assert "boom for test" in json.loads(err.strip().splitlines()[-1])["error"]
+
+    monkeypatch.setenv("WEEKLINT_DEBUG", "1")
+    code, out, err = run(args, capsys)
+    assert code == 3
+    assert "Traceback (most recent call last)" in err
+    assert "RuntimeError: boom for test" in err
+    assert json.loads(err.strip().splitlines()[-1])["code"] == "internal_error"
+
+
+def test_help_lists_global_options(capsys):
+    code, out, err = run(["--help"], capsys)
+    assert code == 0
+    assert "--config" in out and "--json" in out and "--now" in out and "--week" in out
+    code, out, err = run(["check", "--help"], capsys)
+    assert code == 0
+    assert "--config" in out
+
+
+def test_human_output_escapes_rich_markup(workspace, capsys):
+    (workspace / "tasks.md").write_text("- [ ] [/] 坏标题 @estimate(30m)\n", encoding="utf-8")
+    code, out, err = run(["--config", str(workspace / "weeklint.yaml"), "--no-color", "check", "--now", NOW], capsys)
+    assert code == 0, err
+    assert "[/]" in out
+
+
+def test_output_dir_cannot_overwrite_input(workspace, capsys):
+    (workspace / "tasks.md").write_text("- [ ] 论文 @estimate(30m)\n", encoding="utf-8")
+    (workspace / "plan.json").write_text("keep me\n", encoding="utf-8")
+    config = workspace / "weeklint.yaml"
+    data = yaml.safe_load(config.read_text())
+    data["planning"]["task_file"] = "plan.json"
+    data["planning"]["output_dir"] = "."
+    config.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    code, out, err = run(["--config", str(config), "--json", "plan", "--now", NOW], capsys)
+    assert code == 2
+    assert json.loads(err.strip().splitlines()[-1])["code"] == "config_invalid_path"
+    assert (workspace / "plan.json").read_text() == "keep me\n"

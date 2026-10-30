@@ -14,8 +14,10 @@ import sys
 import traceback
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from rich.console import Console
+from rich.markup import escape as _escape_markup
 from rich.table import Table
 
 from . import __version__
@@ -50,7 +52,12 @@ def _system_timezone() -> str:
     try:
         name = os.environ.get("TZ")
         if name:
-            return name.lstrip(":")
+            name = name.lstrip(":")
+            try:
+                ZoneInfo(name)
+                return name
+            except (ZoneInfoNotFoundError, ValueError):
+                pass
         link = Path("/etc/localtime")
         if link.exists():
             resolved = link.resolve()
@@ -168,6 +175,12 @@ def _check_json(check: CheckData, config: Config) -> dict:
     }
 
 
+def _user(value: object) -> str:
+    """Escape Rich markup and drop terminal control characters from user text."""
+    text = "".join(ch for ch in str(value) if ord(ch) >= 32 and ord(ch) != 127)
+    return _escape_markup(text)
+
+
 def _print_findings(check, opts) -> None:
     c = _console(opts)
     if not check.findings:
@@ -176,7 +189,7 @@ def _print_findings(check, opts) -> None:
     for severity in ("error", "warning", "info"):
         for finding in check.findings:
             if finding.severity == severity:
-                c.print(f"[{severity}] {finding.message}")
+                c.print(f"[{severity}] {_user(finding.message)}")
 
 
 def cmd_check(args, opts) -> int:
@@ -201,7 +214,7 @@ def cmd_check(args, opts) -> int:
                 at_risk = check.overcommitted and task.due is not None and task.due <= week_end
                 table.add_row(
                     task.id,
-                    task.title,
+                    _user(task.title),
                     fmt_minutes(task.estimate_minutes),
                     task.due.strftime("%m-%d %H:%M") if task.due else "—",
                     task.priority,
@@ -286,8 +299,8 @@ def cmd_today(args, opts) -> int:
     blocks = [b for b in data.get("blocks", []) if isinstance(b, dict) and str(b.get("start", "")).startswith(today.isoformat())]
     blocks.sort(key=lambda b: b.get("start", ""))
     upcoming = None
-    for block in data.get("blocks", []):
-        if isinstance(block, dict) and block.get("start", "") > iso(now):
+    for block in blocks:
+        if block.get("start", "") > iso(now):
             upcoming = block
             break
     task_map = {t.id: t for t in load_tasks(config.planning.task_file, config.tz, config.planning.default_estimate_minutes)}
@@ -316,10 +329,17 @@ def cmd_today(args, opts) -> int:
         if not blocks:
             c.print("今天没有安排。")
         else:
+            now_iso = iso(now)
             for block in blocks:
                 start = block.get("start", "")
                 end = block.get("end", "")
-                c.print(f"{start[11:16]}–{end[11:16]}  {block.get('title', '')}" + ("（已锁定）" if block.get("locked") else ""))
+                if end <= now_iso:
+                    state = "（已结束）"
+                elif start <= now_iso:
+                    state = "（进行中）"
+                else:
+                    state = ""
+                c.print(f"{start[11:16]}–{end[11:16]}  {_user(block.get('title', ''))}{state}" + ("（已锁定）" if block.get("locked") else ""))
         if upcoming:
             c.print(f"下一块：{upcoming.get('start', '')[11:16]} {upcoming.get('title', '')}")
         if due_unscheduled:
@@ -388,7 +408,7 @@ def cmd_explain(args, opts) -> int:
         _emit_json(payload)
     else:
         c = _console(opts)
-        c.print(f"{task.title}")
+        c.print(_user(task.title))
         c.print(f"id={task.id} · 估算 {fmt_minutes(task.estimate_minutes)} · 截止 {iso(task.due) if task.due else '—'} · 优先级 {task.priority}")
         status_label = {"scheduled": "已排", "unscheduled": "未排", "completed": "已完成", "not_in_scope": "本周外"}.get(status, status)
         c.print(f"状态：{status_label} · {reason_text}", soft_wrap=True)
@@ -527,20 +547,33 @@ def _extract_globals(argv: list[str]) -> tuple[dict, list[str]]:
     return opts, rest
 
 
+GLOBAL_EPILOG = """全局参数（可放在子命令前后）:
+  --config PATH   配置文件路径，默认 ./weeklint.yaml
+  --json          输出单个 JSON 对象
+  --now ISO8601   把“现在”固定为指定时间，便于复现
+  --week YYYY-Www 指定 ISO 周（check/plan/explain）
+  --no-color      关闭颜色
+"""
+
+
+def _add_command(sub, name: str, **kwargs):
+    return sub.add_parser(name, epilog=GLOBAL_EPILOG, formatter_class=argparse.RawDescriptionHelpFormatter, **kwargs)
+
+
 def _build_parser() -> _Parser:
-    parser = _Parser(prog="weeklint", add_help=True)
+    parser = _Parser(prog="weeklint", add_help=True, epilog=GLOBAL_EPILOG, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--version", action="version", version=f"weeklint {__version__}")
     sub = parser.add_subparsers(dest="command", parser_class=_Parser)
-    p = sub.add_parser("init")
+    p = _add_command(sub, "init", help="在当前目录创建 weeklint.yaml、tasks.md、calendar.ics")
     p.add_argument("--dir", default=None)
-    p = sub.add_parser("check")
-    p = sub.add_parser("plan")
+    p = _add_command(sub, "check", help="检查本周容量与需求")
+    p = _add_command(sub, "plan", help="生成周计划与 HTML 报告")
     p.add_argument("--no-report", action="store_true")
-    p = sub.add_parser("today")
-    p = sub.add_parser("explain")
+    p = _add_command(sub, "today", help="看今天的安排与下一块")
+    p = _add_command(sub, "explain", help="解释某个任务为什么排在那里")
     p.add_argument("query")
-    p = sub.add_parser("doctor")
-    p = sub.add_parser("version")
+    p = _add_command(sub, "doctor", help="检查配置、任务和日历是否能读")
+    p = _add_command(sub, "version", help="打印版本")
     return parser
 
 

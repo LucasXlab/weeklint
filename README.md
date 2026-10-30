@@ -56,7 +56,7 @@ tasks.md ──────┘                │
 三个命令的分工：
 
 - `check`：只算，不写文件。适合「要不要接这个任务」的 10 秒判断。
-- `plan`：排程并写四个文件。适合周日晚上或周一早上生成一周计划。
+- `plan`：排程并写四个文件。适合周一早上生成一周计划；周日晚上想排下一周，用 `--week` 指定下一周。
 - `today`：读当前计划，只看今天。适合每天早上。
 
 ## 功能
@@ -70,7 +70,7 @@ tasks.md ──────┘                │
 - **锁定旧计划**：上次已确认且仍满足约束的块保留为 `locked=true`，重排不会打乱。
 - **可解释**：每个块有 `reason`；`explain` 能回答「为什么这个任务排在这里 / 为什么没排」。
 - **单文件报告**：浅色/深色、375px、打印样式；无脚本、无外部字体/CSS/图片。
-- **稳定错误格式**：`{error, code, detail}`，退出码 0/1/2/3；错误信息带文件、行号或字段，不泄露任务正文以外的内容。
+- **稳定错误格式**：`--json` 时 stderr 是单个 `{error, code, detail}`；人类模式是「消息 + 错误码 + detail JSON」。退出码 0/1/2/3；错误信息带文件、行号或字段，长值会截断。
 
 ## 快速开始
 
@@ -105,6 +105,8 @@ calendar.ics    空日历；把 Google/Outlook/Apple 的日历导出到这里
 1. `weeklint.yaml` 的 `timezone` 改成你的 IANA 时区（例如 `Asia/Shanghai`）。
 2. 把真实日历导出覆盖 `calendar.ics`。
 
+下面用 2026-W45 作为示例；在其他日期直接运行会得到「当前周」。想复现示例，给命令加 `--now 2026-11-02T08:30:00-05:00`（或 `--week 2026-W45`）。
+
 然后写几个任务：
 
 ```markdown
@@ -134,13 +136,13 @@ weeklint check
 weeklint plan
 ```
 
-打开 `.weeklint/report.html`。同目录还有：
+打开 `.weeklint/report.html`。它在隐藏目录里，Finder 默认不显示；用 `open .weeklint/report.html` 或 `Cmd+Shift+G` 进入。同目录还有：
 
 | 文件 | 用途 |
 |---|---|
 | `.weeklint/plan.json` | 机器可读的计划、未排程、findings；下次 `plan` 会锁定其中的块 |
 | `.weeklint/plan.ics` | 导入日历；每个任务块一个事件 |
-| `.weeklint/plan.md` | 按天分组的纯文本计划 |
+| `.weeklint/plan.md` | 按天分组的 Markdown 表格计划 |
 | `.weeklint/report.html` | 单文件报告，可直接发给别人或打印 |
 
 只想看今天：
@@ -211,7 +213,7 @@ weeklint version
 
 ## 报告
 
-`report.html` 是单文件，直接双击打开即可：
+`report.html` 是单文件，用 `open .weeklint/report.html` 打开（`.weeklint` 是隐藏目录，Finder 里默认看不到）：
 
 - 浅色/深色跟随系统；所有颜色来自 CSS token；
 - 375px 单列，无横向滚动；
@@ -228,7 +230,7 @@ weeklint version
 - **只读输入**：只读 `task_file` 和 `calendar_files`；只写 `output_dir`。
 - **不写回日历**：`plan.ics` 是导出文件，不会修改你的源日历。
 - **原子写**：临时文件 + `os.replace`；旧 `plan.json` 先备份为 `plan.prev.json`。
-- **错误不泄露内容**：错误信息只带路径、行号、字段名，不打印整份任务文件。
+- **错误不泄露内容**：错误信息只带路径、行号、字段名和截断后的值，不打印整份任务文件。
 
 ## 已知限制
 
@@ -238,6 +240,7 @@ weeklint version
 - 没有 Windows 实机验证；CI 覆盖 `windows-latest`，但本地开发机是 macOS。
 - 不是 CalDAV 客户端；需要手动导出 `.ics`。
 - `plan.ics` 用 UTC 时间，不含 VTIMEZONE；导入后由客户端换算本地时间。
+- `plan` 按当前 ISO 周排整周，周中运行会把已经过去的时段也排进去；它是周初工具。周日晚上排下一周请加 `--week`，周中调整看 `today`。
 
 实现与规格的偏差逐条记录在 [docs/deviations.md](docs/deviations.md)。
 
@@ -261,6 +264,7 @@ python -m weeklint plan --config examples/weeklint.yaml --now 2026-11-02T08:30:0
 - [CHANGELOG.md](CHANGELOG.md)：版本变更。
 - [examples/](examples/)：可复现的示例输入与截图命令。
 - [docs/screenshots.md](docs/screenshots.md)：浅色、深色、375px 三张真实截图。
+- [notes/审查修复.md](notes/审查修复.md)：三个独立审查的复现、修复与误报。
 
 ## 开发
 

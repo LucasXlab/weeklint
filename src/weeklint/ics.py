@@ -28,6 +28,11 @@ MAX_EXPANDED_EVENTS = 20000
 MAX_OCCURRENCES = 1000
 
 
+def _short(value: object, limit: int = 60) -> str:
+    text = str(value)
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
 def _err(code: str, message: str, **detail: object) -> WeeklintError:
     return WeeklintError(code, message, detail)
 
@@ -70,7 +75,10 @@ def _event_end(ev: object, start: datetime, tz: ZoneInfo) -> datetime | None:
         except Exception:
             return None
         if isinstance(delta, timedelta):
-            return start + delta
+            try:
+                return start + delta
+            except OverflowError:
+                return None
     return None
 
 
@@ -78,7 +86,14 @@ def _rrule_dtstart(start: datetime, all_day: bool) -> datetime:
     return start if not all_day else start.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
-def _occurrences(ev: object, start: datetime, all_day: bool, horizon_start: datetime, horizon_end: datetime) -> tuple[list[datetime], bool]:
+def _occurrences(
+    ev: object,
+    start: datetime,
+    all_day: bool,
+    horizon_start: datetime,
+    horizon_end: datetime,
+    lookback: timedelta,
+) -> tuple[list[datetime], bool]:
     """Expand a VEVENT into local start datetimes within the horizon.
 
     Returns (starts, truncated). Only occurrences that start before the horizon
@@ -94,12 +109,22 @@ def _occurrences(ev: object, start: datetime, all_day: bool, horizon_start: date
     except Exception as exc:
         raise _err(
             "ics_invalid_event",
-            f"事件 {ev.get('SUMMARY', '')!r} 的 RRULE 无法展开：{exc}。",
+            f"事件 {_short(ev.get('SUMMARY', ''))!r} 的 RRULE 无法展开：{_short(exc, 200)}。",
             uid=str(ev.get("UID", "")),
         ) from None
     starts: list[datetime] = []
     truncated = False
-    for idx, occ in enumerate(itertools.islice(rule, MAX_OCCURRENCES + 1)):
+    # Do not count occurrences from DTSTART: a long-running RRULE would burn
+    # the 1000-occurrence cap before reaching the requested week. Jump to the
+    # first occurrence that can overlap the horizon, then count only instances
+    # in this window. ``xafter`` is lazy, so a MINUTELY rule cannot create a
+    # huge list before the cap kicks in.
+    window_start = horizon_start - lookback
+    try:
+        iterator = rule.xafter(window_start, MAX_OCCURRENCES + 1, inc=True)  # type: ignore[attr-defined]
+    except AttributeError:  # pragma: no cover - dateutil rrule always has xafter
+        iterator = (item for item in rule if item >= window_start)
+    for idx, occ in enumerate(iterator):
         if idx >= MAX_OCCURRENCES:
             truncated = True
             break
@@ -136,7 +161,7 @@ def load_events(config, horizon_start: datetime, horizon_end: datetime) -> tuple
         try:
             cal = Calendar.from_ical(data)
         except Exception as exc:
-            raise _err("ics_parse_error", f"日历文件无法解析：{path}（{exc}）。", path=str(path)) from None
+            raise _err("ics_parse_error", f"日历文件无法解析：{path}（{_short(exc, 200)}）。", path=str(path)) from None
         raw_events = list(cal.walk("VEVENT"))
         if len(raw_events) > MAX_EVENTS_PER_FILE:
             raise _err(
@@ -175,7 +200,7 @@ def load_events(config, horizon_start: datetime, horizon_end: datetime) -> tuple
             except Exception as exc:
                 raise _err(
                     "ics_invalid_event",
-                    f"日历 {path.name} 里事件 {summary!r} 的 DTSTART 无效：{exc}。",
+                    f"日历 {path.name} 里事件 {_short(summary)!r} 的 DTSTART 无效：{_short(exc, 200)}。",
                     path=str(path),
                     uid=str(ev.get("UID", "")),
                 ) from None
@@ -215,14 +240,14 @@ def load_events(config, horizon_start: datetime, horizon_end: datetime) -> tuple
             if duration <= timedelta(0):
                 raise _err(
                     "ics_invalid_event",
-                    f"日历 {path.name} 里事件 {summary!r} 的结束时间不晚于开始时间。",
+                    f"日历 {path.name} 里事件 {_short(summary)!r} 的结束时间不晚于开始时间。",
                     path=str(path),
                     uid=str(ev.get("UID", "")),
                 )
             uid = str(ev.get("UID", "")).strip()
             if not uid:
                 uid = hashlib.sha1(f"{path.name}:{index}:{summary}:{start.isoformat()}".encode("utf-8")).hexdigest()[:12]
-            starts, truncated = _occurrences(ev, start, all_day, horizon_start, horizon_end)
+            starts, truncated = _occurrences(ev, start, all_day, horizon_start, horizon_end, duration)
             if truncated:
                 findings.append(
                     Finding("recurrence_truncated", "warning", f"重复事件 {summary or uid} 本周实例超过 1000 个，已截断。")
@@ -239,7 +264,15 @@ def load_events(config, horizon_start: datetime, horizon_end: datetime) -> tuple
             for occ_start in all_starts:
                 if occ_start in exdates:
                     continue
-                occ_end = occ_start + duration
+                try:
+                    occ_end = occ_start + duration
+                except OverflowError:
+                    raise _err(
+                        "ics_invalid_event",
+                        f"事件 {_short(summary)!r} 的结束时间超出可表示范围。",
+                        path=str(path),
+                        uid=uid,
+                    ) from None
                 if occ_end <= horizon_start or occ_start >= horizon_end:
                     continue
                 clipped_start = max(occ_start, horizon_start)
@@ -255,6 +288,12 @@ def load_events(config, horizon_start: datetime, horizon_end: datetime) -> tuple
                     )
                     continue
                 seen[key] = path.name
+                if len(events) >= MAX_EXPANDED_EVENTS:
+                    raise _err(
+                        "too_many_events",
+                        f"展开后本周事件超过 {MAX_EXPANDED_EVENTS} 个上限。",
+                        count=len(events) + 1,
+                    )
                 events.append(
                     CalendarEvent(
                         uid=uid,

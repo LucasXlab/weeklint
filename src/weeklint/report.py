@@ -10,7 +10,6 @@ from __future__ import annotations
 import html
 import json
 import os
-import shutil
 import tempfile
 import time as _time
 from datetime import datetime, timedelta
@@ -21,7 +20,7 @@ from .budget import day_capacity_dicts
 from .errors import WeeklintError
 from .ics import blocks_to_ics
 from .model import Block, PlanData, iso
-from .errors import WeeklintError
+from .planner import reason_label
 
 
 def fmt_minutes(minutes: int) -> str:
@@ -43,42 +42,37 @@ def _block_markdown(block: Block) -> str:
 def render_plan_markdown(plan: PlanData, config) -> str:
     check = plan.check
     lines = [
-        f"# {config.planning.report_title}",
+        f"# {config.planning.report_title}（{check.week.iso}）",
         "",
-        f"- 周：{check.week.iso}（{check.week.start.isoformat()} 至 {(check.week.end - timedelta(days=1)).isoformat()}）",
-        f"- 可支配：{fmt_minutes(check.capacity['usableMinutes'])}",
-        f"- 任务需要：{fmt_minutes(check.demand['estimatedMinutes'])}",
-        f"- 缺口：{fmt_minutes(check.gap_minutes)}",
-        f"- 已排：{fmt_minutes(plan.summary['scheduledMinutes'])}",
-        "",
-        "## 周一至周日",
+        f"容量：可支配 {fmt_minutes(check.capacity['usableMinutes'])} · 已排 {fmt_minutes(plan.summary['scheduledMinutes'])} · 未排 {fmt_minutes(plan.summary['unscheduledMinutes'])}",
         "",
     ]
     by_day: dict[str, list[Block]] = {}
     for block in plan.blocks_sorted():
         by_day.setdefault(block.start.date().isoformat(), []).append(block)
+    weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
     for offset in range(7):
         day = check.week.start + timedelta(days=offset)
-        lines.append(f"### {day.isoformat()}")
+        lines.append(f"## {weekdays[offset]} {day.strftime('%m-%d')}")
         lines.append("")
         day_blocks = by_day.get(day.isoformat(), [])
         if not day_blocks:
             lines.append("无安排。")
         else:
-            lines.extend(_block_markdown(b) for b in day_blocks)
+            lines.append("| 时间 | 任务 | 分钟 |")
+            lines.append("|---|---|---:|")
+            for block in day_blocks:
+                lock = "（已锁定）" if block.locked else ""
+                lines.append(
+                    f"| {block.start.strftime('%H:%M')}–{block.end.strftime('%H:%M')} | {block.title}{lock} | {block.minutes} |"
+                )
         lines.append("")
     lines += ["## 未排程", ""]
     if not plan.unscheduled:
         lines.append("无。" if check.tasks else "无任务。请在 tasks.md 里添加任务。")
     else:
         for task, remaining, reason in plan.unscheduled:
-            lines.append(f"- {task.title} · 还剩 {fmt_minutes(remaining)} · {reason}")
-    lines += ["", "## 发现", ""]
-    if not plan.findings:
-        lines.append("没有问题。")
-    else:
-        for finding in plan.findings:
-            lines.append(f"- [{finding.severity}] {finding.message}")
+            lines.append(f"- {task.title}（{remaining} 分钟）：{reason_label(reason)}")
     lines.append("")
     return "\n".join(lines)
 
@@ -136,6 +130,13 @@ def acquire_lock(output_dir: Path) -> tuple[Path, bool]:
 
 
 def release_lock(lock: Path) -> None:
+    """Remove only our own lock. A stale-takeover may have replaced it."""
+    try:
+        content = lock.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return
+    if f"pid={os.getpid()}" not in content:
+        return
     try:
         lock.unlink()
     except OSError:
@@ -185,10 +186,21 @@ def write_plan_files(plan: PlanData, config, include_report: bool = True) -> dic
     if not os.access(output, os.W_OK):
         raise WeeklintError("output_dir_not_writable", f"输出目录不可写：{output}。", {"path": str(output)})
     plan_json = output / "plan.json"
+    prev = output / "plan.prev.json"
+    inputs = {config.planning.task_file.resolve(), *(path.resolve() for path in config.planning.calendar_files)}
+    outputs = {plan_json.resolve(), (output / "plan.ics").resolve(), (output / "plan.md").resolve(), prev.resolve()}
+    if include_report:
+        outputs.add((output / "report.html").resolve())
+    clash = inputs & outputs
+    if clash:
+        raise WeeklintError(
+            "config_invalid_path",
+            f"输出文件与输入文件相同，会覆盖输入：{next(iter(clash))}。请换一个 output_dir。",
+            {"path": str(next(iter(clash)))},
+        )
     if plan_json.exists():
-        prev = output / "plan.prev.json"
         try:
-            shutil.copy2(plan_json, prev)
+            _atomic_write(prev, plan_json.read_bytes())
         except OSError as exc:
             raise WeeklintError(
                 "write_failed",
@@ -205,6 +217,8 @@ def write_plan_files(plan: PlanData, config, include_report: bool = True) -> dic
 
 
 def _status_text(plan: PlanData) -> str:
+    if not plan.check.tasks:
+        return "还没有任务。先写 tasks.md，再运行 weeklint plan。"
     if plan.summary["tasksUnscheduled"]:
         return "有任务未排完，见下方。"
     if any(f.severity == "error" for f in plan.findings):
@@ -225,7 +239,7 @@ def render_report_html(plan: PlanData, config) -> str:
         by_day.setdefault(block.start.date().isoformat(), []).append(block)
     capacity = check.capacity["usableMinutes"]
     demand = check.demand["estimatedMinutes"]
-    ratio = (min(100.0, (plan.summary["scheduledMinutes"] / capacity) * 100) if capacity else 0.0)
+    ratio = (min(100.0, (max(plan.summary["scheduledMinutes"], demand) / capacity) * 100) if capacity else 0.0)
     errors = [f for f in plan.findings if f.severity == "error"]
     warnings = [f for f in plan.findings if f.severity == "warning"]
     infos = [f for f in plan.findings if f.severity == "info"]
@@ -267,7 +281,7 @@ def render_report_html(plan: PlanData, config) -> str:
     unscheduled_html = ""
     if plan.unscheduled:
         rows = "".join(
-            f"<tr><td>{html.escape(task.title)}</td><td>{fmt_minutes(remaining)}</td><td>{html.escape(reason)}</td></tr>"
+            f"<tr><td>{html.escape(task.title)}</td><td>{fmt_minutes(remaining)}</td><td>{html.escape(reason_label(reason))}</td></tr>"
             for task, remaining, reason in plan.unscheduled
         )
         unscheduled_html = f'<table><thead><tr><th>任务</th><th>剩余</th><th>原因</th></tr></thead><tbody>{rows}</tbody></table>'
@@ -390,6 +404,14 @@ footer { margin-top: var(--space-6); padding-top: var(--space-3); border-top: 1p
   th, td { padding: var(--space-2); }
 }
 @media print {
+  :root {
+    --bg: #fbfbfa; --surface: #ffffff; --surface-subtle: #f2f3ee;
+    --border: #e4e5df; --border-strong: #c9cbc2; --text: #1c1c1a;
+    --text-muted: #5f5f5a; --accent: #2f6f4e; --accent-weak: #e7f0ea;
+    --danger: #a33a2b; --danger-weak: #f7e8e5; --warning: #8a5a12;
+    --warning-weak: #f8f0df; --ok: #2f6f4e; --ok-weak: #e7f0ea;
+  }
+  html { color-scheme: light; }
   body { background: var(--bg); color: var(--text); font-size: var(--text-print); }
   .page { max-width: none; padding: 0; }
   section { break-inside: avoid; }
@@ -415,7 +437,7 @@ footer { margin-top: var(--space-6); padding-top: var(--space-3); border-top: 1p
   <div class="metric"><div class="metric-label">缺口</div><div class="metric-value" style="color: var(--{'danger' if check.gap_minutes else 'ok'})">{fmt_minutes(check.gap_minutes)}</div></div>
 </div>
 <div class="bar{' over' if check.overcommitted else ''}"><span style="width: {ratio:.1f}%"></span></div>
-<div class="bar-caption"><span>已排 {fmt_minutes(plan.summary['scheduledMinutes'])} / 可排 {fmt_minutes(capacity)}</span><span>{'本周没有可用时间' if capacity == 0 else ''}</span></div>
+<div class="bar-caption"><span>已排 {fmt_minutes(plan.summary['scheduledMinutes'])} / 需求 {fmt_minutes(demand)} / 可排 {fmt_minutes(capacity)}</span><span>{'本周没有可用时间' if capacity == 0 else ''}</span></div>
 <div class="status">{_status_text(plan)}</div>
 </section>
 <section aria-labelledby="week-h">
@@ -430,7 +452,7 @@ footer { margin-top: var(--space-6); padding-top: var(--space-3); border-top: 1p
 <h2 id="findings-h">{finding_title}</h2>
 {findings_html}
 </section>
-<footer>Weeklint {__version__} · 本地生成，无网络请求 · 只读输入，不改日历和任务文件</footer>
+<footer>由 Weeklint 在本地生成；没有上传任何数据。Weeklint {__version__} · 不构成对完成时间的保证 · 只读输入，不改日历和任务文件</footer>
 </div>
 </body>
 </html>

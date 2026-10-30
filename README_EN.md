@@ -54,7 +54,7 @@ tasks.md ──────┘                │
 ```
 
 - `check` only computes and writes nothing. Use it before accepting a new task.
-- `plan` schedules and writes four files. Use it on Sunday evening or Monday morning.
+- `plan` schedules and writes four files. Use it on Monday morning; to plan the next week on Sunday evening, pass `--week`.
 - `today` reads the current plan and shows only today. Use it every morning.
 
 ## Features
@@ -68,7 +68,7 @@ Full behavior, limits and error codes are in [docs/features.md](docs/features.md
 - **Locked previous plan**: blocks that are still valid are kept as `locked=true`, so a re-run does not shuffle a confirmed plan.
 - **Explainable**: every block has a `reason`; `explain` answers "why here?" or "why not scheduled?".
 - **Standalone report**: light/dark, 375 px and print styles; no scripts, external fonts, CSS or images.
-- **Stable errors**: `{error, code, detail}` with exit codes 0/1/2/3; messages carry the file, line or field, without dumping the whole task file.
+- **Stable errors**: with `--json`, stderr is one `{error, code, detail}` object; human mode prints a message, code and detail JSON. Exit codes 0/1/2/3; long values are truncated.
 
 ## Quick start
 
@@ -103,6 +103,8 @@ Change at least:
 1. `timezone` in `weeklint.yaml` to your IANA zone (for example `Asia/Shanghai`).
 2. Replace `calendar.ics` with a real calendar export.
 
+The examples below use 2026-W45. On another date a plain run uses the current ISO week; add `--now 2026-11-02T08:30:00-05:00` (or `--week 2026-W45`) to reproduce the examples.
+
 Add tasks:
 
 ```markdown
@@ -124,7 +126,7 @@ Then generate the plan:
 weeklint plan
 ```
 
-Open `.weeklint/report.html`. The same directory contains `plan.json` (next run locks its blocks), `plan.ics` (import into a calendar), `plan.md` (plain text) and `report.html` (standalone).
+Open `.weeklint/report.html`. `.weeklint` is a hidden directory, so Finder hides it by default; run `open .weeklint/report.html` or use Cmd+Shift+G. The same directory contains `plan.json` (next run locks its blocks), `plan.ics` (import into a calendar), `plan.md` (Markdown tables) and `report.html` (standalone).
 
 See today's plan:
 
@@ -221,6 +223,7 @@ See [DESIGN.md](DESIGN.md) for the token list and constraints.
 - No real Windows machine was used during development; CI covers `windows-latest`.
 - Not a CalDAV client; export `.ics` manually.
 - `plan.ics` uses UTC timestamps and no VTIMEZONE; the importing client converts to local time.
+- `plan` covers the whole current ISO week; running it midweek can include slots that already passed. It is a start-of-week tool. To plan next week on Sunday, pass `--week`; use `today` for midweek adjustments.
 
 See [docs/deviations.md](docs/deviations.md) for every implementation deviation.
 
@@ -244,6 +247,7 @@ Open `examples/.weeklint/report.html`. The screenshots use Playwright at 1280 px
 - [CHANGELOG.md](CHANGELOG.md): release notes.
 - [examples/](examples/): reproducible sample input and screenshot command.
 - [docs/screenshots.md](docs/screenshots.md): real light, dark and 375 px screenshots.
+- [notes/审查修复.md](notes/审查修复.md): the three independent reviews, reproductions, fixes and false positives (Chinese).
 
 ## Development
 

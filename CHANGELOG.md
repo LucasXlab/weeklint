@@ -30,11 +30,16 @@ First usable release. Local-only, no network, no account, no LLM.
 - Outputs: `plan.json`, `plan.ics` (valid VCALENDAR with UTC times), `plan.md`
   and a standalone `report.html` with light/dark CSS tokens, 375 px layout and
   print styles.
-- Stable error envelope `{error, code, detail}` with exit codes 0/1/2/3.
+- Stable error envelope `{error, code, detail}` in `--json` mode, with exit codes 0/1/2/3. Long user values are truncated in messages.
 - `--now`, `--week`, `--config`, `--json`, `--no-color` and the matching
   `WEEKLINT_*` environment variables.
 - Tests cover config validation, task metadata, ICS recurrence and DST, budget
   arithmetic, planner locking/rollback, report escaping and CLI error paths.
+- Verification pass fixed long-running RRULEs that were truncated before the
+  requested week, sub-min-block fragment placement, DST capacity arithmetic,
+  unclosed metadata silently becoming title text, Rich/ANSI output injection,
+  oversized error values, deep YAML recursion, input/output path collisions,
+  and stale-lock ownership.
 
 ### Security / privacy
 
@@ -50,4 +55,7 @@ First usable release. Local-only, no network, no account, no LLM.
 - ICS `RECURRENCE-ID` overrides are skipped with a warning instead of merged.
 - RRULE expansion is capped at 1000 instances per event within the week.
 - Only one task file and at most 20 calendars per run.
+- `plan` covers the whole current ISO week; running it midweek can include
+  already-passed slots. Use it at the start of the week; on Sunday pass
+  `--week` for the next week. `today` marks past/running blocks.
 - Not tested against every calendar vendor export.

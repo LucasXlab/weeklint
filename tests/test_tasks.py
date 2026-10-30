@@ -201,3 +201,11 @@ def test_explicit_offset_due_is_not_flagged():
     assert task.due is not None
     assert task.due.utcoffset().total_seconds() == -4 * 3600
     assert task.dst_adjusted is False
+
+
+def test_unclosed_metadata_is_an_error():
+    with pytest.raises(WeeklintError) as exc:
+        parse("- [ ] 坏任务 @estimate(30m\n")
+    assert exc.value.code == "task_parse_error"
+    assert "没有闭合" in exc.value.message
+    assert exc.value.detail["line"] == 1

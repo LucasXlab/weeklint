@@ -191,3 +191,81 @@ def test_recurrence_override_skipped(make_config, workspace):
     events, findings = load(make_config, workspace / "calendar.ics")
     assert any(f.code == "recurrence_override_ignored" for f in findings)
     assert all(e.summary == "重复" for e in events)
+
+
+def test_too_many_events_per_file(make_config, workspace):
+    """VEVENT > 5000 in one file -> too_many_events (D8 upper bound)."""
+    cal = Calendar()
+    cal.add("prodid", "-//Test//Test//EN")
+    cal.add("version", "2.0")
+    start = local(2026, 11, 3, 9)
+    end = local(2026, 11, 3, 9, 30)
+    for index in range(5001):
+        ev = Event()
+        ev.add("uid", f"u{index}@test")
+        ev.add("summary", f"事件{index}")
+        ev.add("dtstart", start)
+        ev.add("dtend", end)
+        cal.add_component(ev)
+    (workspace / "calendar.ics").write_bytes(cal.to_ical())
+    with pytest.raises(WeeklintError) as exc:
+        load(make_config, workspace / "calendar.ics")
+    assert exc.value.code == "too_many_events"
+    assert exc.value.detail["count"] == 5001
+
+
+def test_too_many_expanded_events(make_config, workspace, monkeypatch):
+    """Expanded week instances > MAX_EXPANDED_EVENTS -> too_many_events."""
+    import weeklint.ics as ics_module
+
+    monkeypatch.setattr(ics_module, "MAX_EXPANDED_EVENTS", 3)
+    write_ics(
+        workspace / "calendar.ics",
+        [
+            {"summary": f"会{i}", "start": local(2026, 11, 3, 9, i * 10), "end": local(2026, 11, 3, 9, i * 10 + 5)}
+            for i in range(4)
+        ],
+    )
+    with pytest.raises(WeeklintError) as exc:
+        load(make_config, workspace / "calendar.ics")
+    assert exc.value.code == "too_many_events"
+    assert exc.value.detail["count"] == 4
+
+
+def test_recurrence_truncated(make_config, workspace):
+    """More than 1000 instances inside one week -> warning, not an error."""
+    write_ics(
+        workspace / "calendar.ics",
+        [
+            {
+                "summary": "太密",
+                "start": local(2026, 11, 2, 9),
+                "end": local(2026, 11, 2, 9, 1),
+                "rrule": {"freq": "minutely", "count": 2000},
+            }
+        ],
+    )
+    events, findings = load(make_config, workspace / "calendar.ics")
+    assert len(events) == 1000
+    truncated = [f for f in findings if f.code == "recurrence_truncated"]
+    assert len(truncated) == 1
+    assert truncated[0].severity == "warning"
+    assert not [f for f in findings if f.severity == "error"]
+
+
+def test_long_running_recurrence_starts_at_week(make_config, workspace):
+    """An infinite RRULE from years ago must not spend the 1000 cap pre-horizon."""
+    write_ics(
+        workspace / "calendar.ics",
+        [
+            {
+                "summary": "每日站会",
+                "start": local(2023, 1, 2, 9),
+                "end": local(2023, 1, 2, 10),
+                "rrule": {"freq": "daily"},
+            }
+        ],
+    )
+    events, findings = load(make_config, workspace / "calendar.ics")
+    assert len(events) == 7
+    assert not any(f.code == "recurrence_truncated" for f in findings)

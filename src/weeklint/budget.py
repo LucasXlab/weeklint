@@ -18,7 +18,7 @@ from .model import (
     WeekRange,
     minutes_between,
 )
-from .timeutil import local_datetime, parse_iso_datetime
+from .timeutil import add_minutes, local_datetime, parse_iso_datetime
 
 
 def _err(code: str, message: str, **detail: object) -> WeeklintError:
@@ -34,21 +34,25 @@ def parse_week_arg(value: str, tz: ZoneInfo) -> WeekRange:
         if not (1 <= week <= 53):
             raise ValueError
         monday = date.fromisocalendar(year, week, 1)
-    except (ValueError, AttributeError):
+        week_end = monday + timedelta(days=7)
+    except (ValueError, AttributeError, OverflowError):
         raise _err(
             "invalid_week",
             f"--week 的值 {value!r} 无效：请写成 YYYY-Www，例如 2026-W45。",
             value=value,
         ) from None
-    sunday = monday + timedelta(days=6)
-    return WeekRange(iso=f"{year}-W{week:02d}", start=monday, end=monday + timedelta(days=7), timezone=str(tz))
+    return WeekRange(iso=f"{year}-W{week:02d}", start=monday, end=week_end, timezone=str(tz))
 
 
 def week_for_now(now: datetime, tz: ZoneInfo) -> WeekRange:
     local = now.astimezone(tz)
     iso_year, iso_week, _ = local.date().isocalendar()
     monday = date.fromisocalendar(iso_year, iso_week, 1)
-    return WeekRange(iso=f"{iso_year}-W{iso_week:02d}", start=monday, end=monday + timedelta(days=7), timezone=str(tz))
+    try:
+        week_end = monday + timedelta(days=7)
+    except OverflowError:
+        raise _err("invalid_now", f"本周范围超出日期可表示范围：{monday.isoformat()}。") from None
+    return WeekRange(iso=f"{iso_year}-W{iso_week:02d}", start=monday, end=week_end, timezone=str(tz))
 
 
 def resolve_now(cli_now: str | None, env: dict[str, str], tz: ZoneInfo) -> datetime:
@@ -142,13 +146,13 @@ def build_check(config: Config, tasks: list[Task], events: list[CalendarEvent], 
         # Clip events to this day's work intervals, merge, then add buffer.
         raw: list[tuple[datetime, datetime]] = []
         extended: list[tuple[datetime, datetime]] = []
-        buffer_delta = timedelta(minutes=config.planning.buffer_after_event_minutes)
+        buffer_minutes = config.planning.buffer_after_event_minutes
         for ev in events:
             for wstart, wend in work:
                 s, e = max(ev.start, wstart), min(ev.end, wend)
                 if e > s:
                     raw.append((s, e))
-                    extended.append((s, min(e + buffer_delta, wend)))
+                    extended.append((s, min(add_minutes(e, buffer_minutes), wend)))
         raw = _merge(raw)
         extended = _merge(extended)
         busy = sum(minutes_between(a, b) for a, b in extended)

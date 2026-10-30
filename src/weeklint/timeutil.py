@@ -8,8 +8,20 @@ back. We make both cases explicit here so callers don't have to guess.
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
+
+
+def add_minutes(value: datetime, minutes: int) -> datetime:
+    """Add elapsed minutes, not wall-clock minutes.
+
+    On DST days an aware local datetime plus ``timedelta`` follows the wall
+    clock (01:00 + 2h may be only one real hour). Task and buffer durations
+    are elapsed time, so add in UTC and convert back.
+    """
+    if value.tzinfo is None:
+        return value + timedelta(minutes=minutes)
+    return (value.astimezone(timezone.utc) + timedelta(minutes=minutes)).astimezone(value.tzinfo)
 
 
 def local_datetime(day: date, clock: time, tz: ZoneInfo) -> datetime:

@@ -75,7 +75,7 @@ timezone: Asia/Shanghai
 |---|---|
 | `plan.json` | 周范围、按天容量、块、未排程、summary、findings、文件路径 |
 | `plan.ics` | 每个块一个 VEVENT；UTC 时间；可导入日历 |
-| `plan.md` | 按天分组的 Markdown，末尾未排程与发现 |
+| `plan.md` | 按天分组的 Markdown 表格，末尾未排程 |
 | `report.html` | 单文件报告；无脚本、无外部资源；浅色/深色 token；375px；打印样式 |
 
 写文件用同目录临时文件 + `os.replace`，临时文件 0600，最终文件 0644；旧 `plan.json` 先复制为 `plan.prev.json`。`plan` 用 `output_dir/.lock` 串行化，超过 10 分钟的锁视为陈旧并清理。
@@ -96,7 +96,7 @@ timezone: Asia/Shanghai
 
 ## 6. 错误与 finding
 
-- 非 finding 错误统一 `{error, code, detail}`，写 stderr；`--json` 时也是一行 JSON。
+- 非 finding 错误在 `--json` 时是 stderr 上的一行 `{error, code, detail}`；人类模式是「消息 + 错误码 + detail JSON」。
 - 退出码：0 正常；1 至少一个 `severity=error` 的 finding；2 用户/输入/配置/写文件错误；3 未预期内部错误。
 - finding 级别：`error`（overcommitted、deadline_at_risk、task_unscheduled）、`warning`（过期、未估算、碎片日、无日历、DST 调整等）、`info`（截止晚于本周）。
 - 完整错误码与 finding 码见 `SPEC.md` 第 4.3、5.3 节。

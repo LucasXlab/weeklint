@@ -106,3 +106,11 @@
 - **原因**：Weeklint 一次只回答一周；预生成会浪费内存并让 `recurrence_truncated` 口径混乱。
 - **影响**：跨周查看需分别运行；`recurrence_truncated` 只统计本周内超过 1000 的实例。
 - **验证**：`tests/test_ics.py::test_dst_recurring_keeps_wall_clock`、`test_recurring_with_exdate`。
+
+
+## D16. `plan` 按整周排程，周中会包含过去时段
+
+- **偏差**：`plan` 没有把 `now` 之后的时段作为起点，仍按当前 ISO 周周一到周日排；周中或周日运行会把已经过去的块写进计划。
+- **原因**：SPEC 4.2 要求「同一周、第二次 `now` 可以不同，`plan.json` 除 `now`/`generatedAt`/`locked` 外完全一致」；如果按 `now` 截断，第二次运行会改变计划，违反幂等。
+- **影响**：`plan` 适合周初运行；README 已改成「周一早上」，周日排下一周请用 `--week`。`today` 会把已结束/进行中的块标出来，避免误以为还没发生。
+- **验证**：`tests/test_planner.py::test_lock_second_run_idempotent`；`tests/test_cli.py::test_today_next_when_block_in_progress` 覆盖 `today` 的块状态。
